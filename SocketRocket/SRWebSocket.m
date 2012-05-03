@@ -344,17 +344,19 @@ static __strong NSData *CRLFCRLF;
 
 - (void)dealloc
 {
-    if(_inputStream){
+    if(_inputStream && _inputStream.streamStatus == NSStreamEventOpenCompleted){
         [_inputStream close];
         [_inputStream removeFromRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         _inputStream.delegate = nil;
     }
+    [_inputStream release];
     
-    if(_outputStream){
+    if(_outputStream && _outputStream.streamStatus == NSStreamEventOpenCompleted){
         [_outputStream close];
         [_outputStream removeFromRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         _outputStream.delegate = nil;
     }
+    [_outputStream release];
     
     dispatch_release(_callbackQueue);
     dispatch_release(_workQueue);
@@ -586,7 +588,7 @@ static __strong NSData *CRLFCRLF;
 - (void)_failWithError:(NSError *)error;
 {
     __block SRWebSocket* bself = self;
-    dispatch_async(_workQueue, ^{
+    //dispatch_async(_workQueue, ^{
         if (bself.readyState != SR_CLOSED) {
             bself->_failed = YES;
             dispatch_async(bself->_callbackQueue, ^{
@@ -599,9 +601,9 @@ static __strong NSData *CRLFCRLF;
 
             SRFastLog(@"Failing with error %@", error.localizedDescription);
             
-            [self _disconnect]; //here we explicitly retain the socket to let time to disconnect before beiing deallocated avoiding multi-threading issues.!
+            [bself _disconnect]; //here we explicitly retain the socket to let time to disconnect before beiing deallocated avoiding multi-threading issues.!
         }
-    });
+    //});
 }
 
 - (void)_writeData:(NSData *)data;
@@ -617,7 +619,7 @@ static __strong NSData *CRLFCRLF;
 - (void)send:(id)data;
 {
     __block SRWebSocket* bself = self;
-    NSAssert(self.readyState != SR_CONNECTING, @"Invalid State: Cannot call send: until connection is open");
+    NSAssert(self.readyState == SR_OPEN, @"Invalid State: Cannot call send: until connection is open");
     // TODO: maybe not copy this for performance
     data = [data copy];
     dispatch_async(_workQueue, ^{
@@ -993,18 +995,25 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
     }
     
     if (_closeWhenFinishedWriting && 
-        _outputBuffer.length - _outputBufferOffset == 0 && 
         (_inputStream.streamStatus != NSStreamStatusNotOpen &&
-         _inputStream.streamStatus != NSStreamStatusClosed) &&
+         _inputStream.streamStatus != NSStreamStatusClosed)){
+            
+            [_inputStream close];
+            [_inputStream removeFromRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+            _inputStream = nil;
+        }
+    
+    if (_closeWhenFinishedWriting && 
+        _outputBuffer.length - _outputBufferOffset == 0 && 
+        (_outputStream.streamStatus != NSStreamStatusNotOpen &&
+         _outputStream.streamStatus != NSStreamStatusClosed) &&
         !_sentClose) {
         _sentClose = YES;
         
+        
         [_outputStream close];
-        [_inputStream close];
-        
         [_outputStream removeFromRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
-        [_inputStream removeFromRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
-        
+        _outputStream = nil;
         
         __block SRWebSocket* bself = self;
         if (!_failed) {
@@ -1014,9 +1023,6 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
                 }
             });
         }
-        
-        _outputStream = nil;
-        _inputStream = nil;
     }
 }
 
@@ -1266,7 +1272,7 @@ static const size_t SRFrameHeaderOverhead = 32;
 
 - (void)stream:(NSStream *)aStream handleEvent:(NSStreamEvent)eventCode;
 {
-    __block SRWebSocket* bself = self;
+    /*__block */ SRWebSocket* bself = self; //lets finish !
     //    SRFastLog(@"%@ Got stream event %d", aStream, eventCode);
     dispatch_async(_workQueue, ^{
         switch (eventCode) {
@@ -1289,9 +1295,11 @@ static const size_t SRFrameHeaderOverhead = 32;
             case NSStreamEventErrorOccurred: {
                 SRFastLog(@"NSStreamEventErrorOccurred %@ %@", aStream, [[aStream streamError] copy]);
                 /// TODO specify error better!
+                
                 [bself _failWithError:aStream.streamError];
                 bself->_readBufferOffset = 0;
                 [bself->_readBuffer setLength:0];
+                
                 break;
                 
             }
