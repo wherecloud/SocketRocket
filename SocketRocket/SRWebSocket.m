@@ -212,6 +212,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 
 @interface SRMessage : NSObject
 @property (nonatomic,retain) id data;
+@property (nonatomic,retain) id userData;
 @property (nonatomic,retain) NSData* framedData;
 @property (nonatomic,assign) NSInteger writeOffset;
 @property (nonatomic,copy) SRWebSocketCompletionBlock completionBlock;
@@ -223,6 +224,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 
 @implementation SRMessage
 @synthesize data = _data;
+@synthesize userData = _userData;
 @synthesize framedData = _framedData;
 @synthesize writeOffset = _writeOffset;
 @synthesize completionBlock = _completionBlock;
@@ -231,6 +233,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
     [_data release];
     [_framedData release];
     [_completionBlock release];
+    [_userData release];
     [super dealloc];
 }
 
@@ -279,7 +282,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 - (void)_readUntilBytes:(const void *)bytes length:(size_t)length callback:(data_callback)dataHandler;
 - (void)_readUntilHeaderCompleteWithCallback:(data_callback)dataHandler;
 
-- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data  completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock;
+- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data  userData:userData completionBlock:(void(^)(SRWebSocket* socket, id data, id userData))completionBlock;
 
 - (BOOL)_checkHandshake:(CFHTTPMessageRef)httpMessage;
 - (void)_SR_commonInit;
@@ -633,7 +636,7 @@ static __strong NSData *CRLFCRLF;
         }
         
         
-        [bself _sendFrameWithOpcode:SROpCodeConnectionClose data:payload  completionBlock:nil];
+        [bself _sendFrameWithOpcode:SROpCodeConnectionClose data:payload userData:nil completionBlock:nil];
     });
 }
 
@@ -656,11 +659,10 @@ static __strong NSData *CRLFCRLF;
     //dispatch_async(_workQueue, ^{
         if (bself.readyState != SR_CLOSED) {
             bself->_failed = YES;
-            dispatch_async(bself->_callbackQueue, ^{
-                if ([bself.delegate respondsToSelector:@selector(webSocket:didFailWithError:)]) {
-                    [bself.delegate webSocket:bself didFailWithError:error];
-                }
-            });
+            
+            if ([bself.delegate respondsToSelector:@selector(webSocket:didFailWithError:)]) {
+                [bself.delegate webSocket:bself didFailWithError:error];
+            }
 
             bself.readyState = SR_CLOSED;
 
@@ -687,7 +689,7 @@ static __strong NSData *CRLFCRLF;
     [self _pumpWriting];
 }
 
-- (void)send:(id)data  completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock;
+- (void)send:(id)data userData:(id)userData completionBlock:(void(^)(SRWebSocket* socket, id data, id userData))completionBlock;
 {
     __block SRWebSocket* bself = self;
     NSAssert(self.readyState == SR_OPEN, @"Invalid State: Cannot call send: until connection is open");
@@ -695,11 +697,11 @@ static __strong NSData *CRLFCRLF;
     data = [data copy];
     dispatch_async(_workQueue, ^{
         if ([data isKindOfClass:[NSString class]]) {
-            [bself _sendFrameWithOpcode:SROpCodeTextFrame data:[(NSString *)data dataUsingEncoding:NSUTF8StringEncoding] completionBlock:completionBlock];
+            [bself _sendFrameWithOpcode:SROpCodeTextFrame data:[(NSString *)data dataUsingEncoding:NSUTF8StringEncoding] userData:userData completionBlock:completionBlock];
         } else if ([data isKindOfClass:[NSData class]]) {
-            [bself _sendFrameWithOpcode:SROpCodeBinaryFrame data:data  completionBlock:completionBlock];
+            [bself _sendFrameWithOpcode:SROpCodeBinaryFrame data:data userData:userData completionBlock:completionBlock];
         } else if (data == nil) {
-            [bself _sendFrameWithOpcode:SROpCodeTextFrame data:data  completionBlock:completionBlock];
+            [bself _sendFrameWithOpcode:SROpCodeTextFrame data:data userData:userData completionBlock:completionBlock];
         } else {
             assert(NO);
         }
@@ -712,7 +714,7 @@ static __strong NSData *CRLFCRLF;
     // Need to pingpong this off _callbackQueue first to make sure messages happen in order
     dispatch_async(_callbackQueue, ^{
         dispatch_async(_workQueue, ^{
-            [bself _sendFrameWithOpcode:SROpCodePong data:pingData  completionBlock:nil];
+            [bself _sendFrameWithOpcode:SROpCodePong data:pingData userData:nil  completionBlock:nil];
         });
     });
 }
@@ -1059,7 +1061,7 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
             }else{
                 if([message isSentCompletely]){
                     if(message.completionBlock){
-                        message.completionBlock(self,message.data);
+                        message.completionBlock(self,message.data, message.userData);
                     }
                     [_outputMessageQueue removeObjectAtIndex:0];
                 }
@@ -1084,17 +1086,21 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
         _sentClose = YES;
         
         
+        dispatch_release(_callbackQueue);
+        dispatch_release(_workQueue);
+        
+        _callbackQueue = nil;
+        _workQueue = nil;
+        
         [_outputStream close];
         [_outputStream removeFromRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         _outputStream = nil;
         
         __block SRWebSocket* bself = self;
         if (!_failed) {
-            dispatch_async(_callbackQueue, ^{
-                if ([bself.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
-                    [bself.delegate webSocket:bself didCloseWithCode:_closeCode reason:_closeReason wasClean:YES];
-                }
-            });
+            if ([bself.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
+                [bself.delegate webSocket:bself didCloseWithCode:_closeCode reason:_closeReason wasClean:YES];
+            }
         }
     }
 }
@@ -1269,7 +1275,7 @@ static const char CRLFCRLFBytes[] = {'\r', '\n', '\r', '\n'};
 
 static const size_t SRFrameHeaderOverhead = 32;
 
-- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock
+- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data userData:userData completionBlock:(void(^)(SRWebSocket* socket, id data, id usedData))completionBlock
 {
     assert(dispatch_get_current_queue() == _workQueue);
     
@@ -1345,6 +1351,7 @@ static const size_t SRFrameHeaderOverhead = 32;
     message.data = data;
     message.framedData = frame;
     message.completionBlock = completionBlock;
+    message.userData = userData;
     [self _writeMessage:message];
 }
 
