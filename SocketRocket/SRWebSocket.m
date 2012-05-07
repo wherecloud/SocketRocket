@@ -211,6 +211,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 
 @interface SRMessage : NSObject
 @property (nonatomic,retain) id data;
+@property (nonatomic,retain) id userData;
 @property (nonatomic,retain) NSData* framedData;
 @property (nonatomic,assign) NSInteger writeOffset;
 @property (nonatomic,copy) SRWebSocketCompletionBlock completionBlock;
@@ -222,6 +223,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 
 @implementation SRMessage
 @synthesize data = _data;
+@synthesize userData = _userData;
 @synthesize framedData = _framedData;
 @synthesize writeOffset = _writeOffset;
 @synthesize completionBlock = _completionBlock;
@@ -271,7 +273,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 - (void)_readUntilBytes:(const void *)bytes length:(size_t)length callback:(data_callback)dataHandler;
 - (void)_readUntilHeaderCompleteWithCallback:(data_callback)dataHandler;
 
-- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data  completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock;
+- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data  userData:userData completionBlock:(void(^)(SRWebSocket* socket, id data, id userData))completionBlock;
 
 - (BOOL)_checkHandshake:(CFHTTPMessageRef)httpMessage;
 - (void)_SR_commonInit;
@@ -607,7 +609,7 @@ static __strong NSData *CRLFCRLF;
             }
         }
         
-        [self _sendFrameWithOpcode:SROpCodeConnectionClose data:payload  completionBlock:nil];
+        [self _sendFrameWithOpcode:SROpCodeConnectionClose data:payload  userData:nil completionBlock:nil];
     });
 }
 
@@ -624,13 +626,12 @@ static __strong NSData *CRLFCRLF;
 
 - (void)_failWithError:(NSError *)error;
 {
-    __block SRWebSocket* bself = self;
     dispatch_async(_workQueue, ^{
         if (self.readyState != SR_CLOSED) {
-            bself->_failed = YES;
+            _failed = YES;
             dispatch_async(_callbackQueue, ^{
-                if ([bself.delegate respondsToSelector:@selector(webSocket:didFailWithError:)]) {
-                    [bself.delegate webSocket:self didFailWithError:error];
+                if ([self.delegate respondsToSelector:@selector(webSocket:didFailWithError:)]) {
+                    [self.delegate webSocket:self didFailWithError:error];
                 }
             });
 
@@ -659,18 +660,18 @@ static __strong NSData *CRLFCRLF;
     [self _pumpWriting];
 }
 
-- (void)send:(id)data  completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock;
+- (void)send:(id)data userData:(id)userData completionBlock:(void(^)(SRWebSocket* socket, id data, id userData))completionBlock;
 {
     NSAssert(self.readyState != SR_CONNECTING, @"Invalid State: Cannot call send: until connection is open");
     // TODO: maybe not copy this for performance
     data = [data copy];
     dispatch_async(_workQueue, ^{
         if ([data isKindOfClass:[NSString class]]) {
-            [self _sendFrameWithOpcode:SROpCodeTextFrame data:[(NSString *)data dataUsingEncoding:NSUTF8StringEncoding] completionBlock:completionBlock];
+            [self _sendFrameWithOpcode:SROpCodeTextFrame data:[(NSString *)data dataUsingEncoding:NSUTF8StringEncoding] userData:userData completionBlock:completionBlock];
         } else if ([data isKindOfClass:[NSData class]]) {
-            [self _sendFrameWithOpcode:SROpCodeBinaryFrame data:data  completionBlock:completionBlock];
+            [self _sendFrameWithOpcode:SROpCodeBinaryFrame data:data userData:userData completionBlock:completionBlock];
         } else if (data == nil) {
-            [self _sendFrameWithOpcode:SROpCodeTextFrame data:data  completionBlock:completionBlock];
+            [self _sendFrameWithOpcode:SROpCodeTextFrame data:data userData:userData completionBlock:completionBlock];
         } else {
             assert(NO);
         }
@@ -682,7 +683,7 @@ static __strong NSData *CRLFCRLF;
     // Need to pingpong this off _callbackQueue first to make sure messages happen in order
     dispatch_async(_callbackQueue, ^{
         dispatch_async(_workQueue, ^{
-            [self _sendFrameWithOpcode:SROpCodePong data:pingData  completionBlock:nil];
+            [self _sendFrameWithOpcode:SROpCodePong data:pingData userData:nil completionBlock:nil];
         });
     });
 }
@@ -1023,7 +1024,7 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
             }else{
                 if([message isSentCompletely]){
                     if(message.completionBlock){
-                        message.completionBlock(self,message.data);
+                        message.completionBlock(self,message.data, message.userData);
                     }
                     [_outputMessageQueue removeObjectAtIndex:0];
                 }
@@ -1046,12 +1047,13 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
          _outputStream.streamStatus != NSStreamStatusClosed) &&
         !_sentClose) {
         _sentClose = YES;
-            
+        
         [_outputStream close];
         [_inputStream close];
         
         if (!_failed) {
-            dispatch_async(_callbackQueue, ^{
+
+        dispatch_async(_callbackQueue, ^{
                 if ([self.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
                     [self.delegate webSocket:self didCloseWithCode:_closeCode reason:_closeReason wasClean:YES];
                 }
@@ -1225,7 +1227,7 @@ static const char CRLFCRLFBytes[] = {'\r', '\n', '\r', '\n'};
 
 static const size_t SRFrameHeaderOverhead = 32;
 
-- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock
+- (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data userData:userData completionBlock:(void(^)(SRWebSocket* socket, id data, id usedData))completionBlock
 {
     assert(dispatch_get_current_queue() == _workQueue);
     
@@ -1301,6 +1303,7 @@ static const size_t SRFrameHeaderOverhead = 32;
     message.data = data;
     message.framedData = frame;
     message.completionBlock = completionBlock;
+    message.userData = userData;
     [self _writeMessage:message];
 }
 

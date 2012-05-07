@@ -17,7 +17,7 @@
 #import <Foundation/Foundation.h>
 
 @class SRWebSocket;
-typedef void(^SRWebSocketCompletionBlock)(SRWebSocket* socket,id data);
+typedef void(^SRWebSocketCompletionBlock)(SRWebSocket* socket,id data, id userData);
 
 typedef enum {
     SR_CONNECTING   = 0,
@@ -48,7 +48,7 @@ extern NSString *const SRWebSocketErrorDomain;
 - (void)closeWithCode:(NSInteger)code reason:(NSString *)reason;
 
 // Send a UTF8 String or Data
-- (void)send:(id)data  completionBlock:(void(^)(SRWebSocket* socket, id data))completionBlock;
+- (void)send:(id)data  userData:(id)userData completionBlock:(void(^)(SRWebSocket* socket, id data, id userData))completionBlock;
 
 @end
 
