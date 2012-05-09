@@ -15,6 +15,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import <Security/SecCertificate.h>
 
 @class SRWebSocket;
 typedef void(^SRWebSocketCompletionBlock)(SRWebSocket* socket,id data, id userData);
@@ -40,8 +41,19 @@ extern NSString *const SRWebSocketErrorDomain;
 @property (nonatomic, readonly) SRReadyState readyState;
 @property (nonatomic, readonly, retain) NSURL *url;
 
+// This returns the negotiated protocol.
+// It will be niluntil after the handshake completes.
+@property (nonatomic, readonly, copy) NSString *protocol;
+
+// Protocols should be an array of strings that turn into Sec-WebSocket-Protocol
+- (id)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols;
 - (id)initWithURLRequest:(NSURLRequest *)request;
 
+// Some helper constructors
+- (id)initWithURL:(NSURL *)url protocols:(NSArray *)protocols;
+- (id)initWithURL:(NSURL *)url;
+
+// SRWebSockets are intended one-time-use only.  Open should be called once and only once
 - (void)open;
 
 - (void)close;
@@ -54,12 +66,28 @@ extern NSString *const SRWebSocketErrorDomain;
 
 @protocol SRWebSocketDelegate <NSObject>
 
-- (void)webSocket:(SRWebSocket *)webSocket didReceiveMessage:(NSString *)message;
+// message will either be an NSString if the server is using text 
+// or NSData if the server is using binary
+- (void)webSocket:(SRWebSocket *)webSocket didReceiveMessage:(id)message;
 
 @optional
 
 - (void)webSocketDidOpen:(SRWebSocket *)webSocket;
 - (void)webSocket:(SRWebSocket *)webSocket didFailWithError:(NSError *)error;
 - (void)webSocket:(SRWebSocket *)webSocket didCloseWithCode:(NSInteger)code reason:(NSString *)reason wasClean:(BOOL)wasClean;
+
+@end
+
+
+@interface NSURLRequest (CertificateAdditions)
+
+@property (nonatomic, retain, readonly) NSArray *SR_SSLPinnedCertificates;
+
+@end
+
+
+@interface NSMutableURLRequest (CertificateAdditions)
+
+@property (nonatomic, retain) NSArray *SR_SSLPinnedCertificates;
 
 @end
