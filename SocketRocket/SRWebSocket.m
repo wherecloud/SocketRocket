@@ -1551,7 +1551,9 @@ static inline dispatch_queue_t log_queue() {
     return queue;
 }
 
+#if DEBUG
 #define SR_ENABLE_LOG
+#endif
 
 static inline void SRFastLog(NSString *format, ...)  {
 #ifdef SR_ENABLE_LOG
