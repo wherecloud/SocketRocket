@@ -350,9 +350,9 @@ static __strong NSData *CRLFCRLF;
     
     _webSocketVersion = 13;
     
-    _workQueue = dispatch_queue_create(NULL, DISPATCH_QUEUE_SERIAL);
+    _workQueue = dispatch_queue_create("com.socketrocket.worker", DISPATCH_QUEUE_SERIAL);
     
-    _callbackQueue = dispatch_get_main_queue();
+    _callbackQueue = dispatch_get_main_queue();//dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0);
     
     _readBuffer = [[NSMutableData alloc] init];
     
@@ -377,6 +377,7 @@ static __strong NSData *CRLFCRLF;
     [_outputStream close];
     
     dispatch_release(_workQueue);
+    //dispatch_release(_callbackQueue);
     
     if (_receivedHTTPHeaders) {
         CFRelease(_receivedHTTPHeaders);
@@ -710,11 +711,17 @@ static __strong NSData *CRLFCRLF;
 
 - (void)_handleMessage:(id)message
 {
-    SRFastLog(@"Received message");
+    static NSInteger count = 0;
+    
+    NSInteger thisCount = count;
+    SRFastLog(@"Received message %@",message);
+    SRFastLog(@"DISPATCH %d",thisCount);
     __block SRWebSocket *bself = self;
     dispatch_async(_callbackQueue, ^{
+        SRFastLog(@"WORKING %d",thisCount);
         [bself.delegate webSocket:bself didReceiveMessage:message];
     });
+    count++;
 }
 
 
