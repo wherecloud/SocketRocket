@@ -576,7 +576,7 @@ static __strong NSData *CRLFCRLF;
         
         #if DEBUG
         [SSLOptions setValue:[NSNumber numberWithBool:NO] forKey:(__bridge id)kCFStreamSSLValidatesCertificateChain];
-        NSLog(@"SocketRocket: In debug mode.  Allowing connection to any root cert");
+        SRFastLog(@"SocketRocket: In debug mode.  Allowing connection to any root cert");
         #endif
         
         [_outputStream setProperty:SSLOptions
@@ -701,7 +701,7 @@ static __strong NSData *CRLFCRLF;
 {
     NSAssert(self.readyState != SR_CONNECTING, @"Invalid State: Cannot call send: until connection is open");
     // TODO: maybe not copy this for performance
-    data = [data copy];
+  //  data = [data copy]; //this is retained in SRMessage created in _sendFrameWithOpcode
     __block SRWebSocket *bself = self;
     dispatch_async(_workQueue, ^{
         if ([data isKindOfClass:[NSString class]]) {
@@ -1714,7 +1714,7 @@ static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
             self.maxMessages = self.messagesBandwidth;
         }
         
-        NSLog(@"Messages per sec (%@) : %d MaxMessages per sec : %d total : %d",self.name,self.messagesBandwidth,self.maxMessages,self.totalMessages);
+        SRFastLog(@"Messages per sec (%@) : %d MaxMessages per sec : %d total : %d",self.name,self.messagesBandwidth,self.maxMessages,self.totalMessages);
         
         self.messagesInThisSecond = 0;
         self.lastMessageMesureTimeInterval = (NSInteger)interval;
@@ -1732,7 +1732,7 @@ static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
             self.maxbandwidth = self.bandwidth;
         }
         
-        NSLog(@"Bandwith (%@) : %d MaxBandwith : %d total : %d",self.name,self.bandwidth,self.maxbandwidth,self.totalSent);
+        SRFastLog(@"Bandwith (%@) : %d MaxBandwith : %d total : %d",self.name,self.bandwidth,self.maxbandwidth,self.totalSent);
         
         self.consumedInThisSecond = 0;
         self.lastMesureTimeInterval = (NSInteger)interval;
