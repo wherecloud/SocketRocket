@@ -169,10 +169,15 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 @property (nonatomic,assign) NSInteger writeOffset;
 @property (nonatomic,copy) SRWebSocketCompletionBlock completionBlock;
 
-- (void)sendInStream:(NSOutputStream*)outputStream error:(NSError**)error;
+- (NSUInteger)sendInStream:(NSOutputStream*)outputStream error:(NSError**)error;
 - (BOOL)isSentCompletely;
 
 @end
+
+
+
+
+
 
 @implementation SRMessage
 @synthesize data = _data;
@@ -187,7 +192,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
     return self;
 }
 
-- (void)sendInStream:(NSOutputStream*)outputStream error:(NSError**)error{
+- (NSUInteger)sendInStream:(NSOutputStream*)outputStream error:(NSError**)error{
     NSUInteger bytesWritten = [outputStream write:_framedData.bytes + _writeOffset maxLength:_framedData.length - _writeOffset];
     if (bytesWritten == -1) {
         *error = [NSError errorWithDomain:@"org.lolrus.SocketRocket" code:2145 userInfo:[NSDictionary dictionaryWithObject:@"Error writing to stream" forKey:NSLocalizedDescriptionKey]];
@@ -195,6 +200,7 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
     else{
         _writeOffset += bytesWritten;
     }
+    return bytesWritten;
 }
 
 - (BOOL)isSentCompletely{
@@ -234,6 +240,8 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 - (void)_connectToHost:(NSString *)host port:(NSInteger)port;
 
 @property (nonatomic) SRReadyState readyState;
+@property (nonatomic, retain,readwrite) SRBandwidthMesurements* writeBandwidthMesurements;
+@property (nonatomic, retain,readwrite) SRBandwidthMesurements* readBandwidthMesurements;
 
 @end
 
@@ -295,6 +303,13 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 @synthesize url = _url;
 @synthesize readyState = _readyState;
 @synthesize protocol = _protocol;
+@synthesize writeBandwidthMesurements = _writeBandwidthMesurements;
+@synthesize readBandwidthMesurements = _readBandwidthMesurements;
+
+@synthesize openBlock;
+@synthesize closedBlock;
+@synthesize errorBlock;
+@synthesize messageBlock;
 
 static __strong NSData *CRLFCRLF;
 
@@ -309,6 +324,8 @@ static __strong NSData *CRLFCRLF;
     if (self) {
         assert(request.URL);
         _url = request.URL;
+        self.writeBandwidthMesurements = [[SRBandwidthMesurements alloc]initWithName:@"WRITE"];
+        self.readBandwidthMesurements = [[SRBandwidthMesurements alloc]initWithName:@"READ"];
         NSString *scheme = [_url scheme];
         
         _requestedProtocols = [protocols copy];
@@ -467,6 +484,9 @@ static __strong NSData *CRLFCRLF;
 
     __block SRWebSocket *bself = self;
     dispatch_async(_callbackQueue, ^{
+        if(bself.openBlock){
+            bself.openBlock(bself);
+        }
         if ([bself.delegate respondsToSelector:@selector(webSocketDidOpen:)]) {
             [bself.delegate webSocketDidOpen:bself];
         }
@@ -643,6 +663,9 @@ static __strong NSData *CRLFCRLF;
         if (bself.readyState != SR_CLOSED) {
             bself->_failed = YES;
             dispatch_async(bself->_callbackQueue, ^{
+                if(bself.errorBlock){
+                    bself.errorBlock(bself,error);
+                }
                 if ([bself.delegate respondsToSelector:@selector(webSocket:didFailWithError:)]) {
                     [bself.delegate webSocket:bself didFailWithError:error];
                 }
@@ -711,17 +734,16 @@ static __strong NSData *CRLFCRLF;
 
 - (void)_handleMessage:(id)message
 {
-    static NSInteger count = 0;
-    
-    NSInteger thisCount = count;
-    SRFastLog(@"Received message %@",message);
-    SRFastLog(@"DISPATCH %d",thisCount);
     __block SRWebSocket *bself = self;
+    [self.readBandwidthMesurements recordMEssageUsageWithMessageCount:1];
     dispatch_async(_callbackQueue, ^{
-        SRFastLog(@"WORKING %d",thisCount);
-        [bself.delegate webSocket:bself didReceiveMessage:message];
+        if(bself.messageBlock){
+            bself.messageBlock(bself,message);
+        }
+        if([bself.delegate respondsToSelector:@selector(webSocket:didReceiveMessage:)]){
+            [bself.delegate webSocket:bself didReceiveMessage:message];
+        }
     });
-    count++;
 }
 
 
@@ -1047,11 +1069,14 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
         while(_outputStream.hasSpaceAvailable && [_outputMessageQueue count] > 0 && !error){
             SRMessage* message = [_outputMessageQueue objectAtIndex:0];
             
-            [message sendInStream:_outputStream error:&error];
+            NSUInteger written = [message sendInStream:_outputStream error:&error];
+            [self.writeBandwidthMesurements recordBandwidthUsageWithLength:written];
+            
             if(error){
                 [self _failWithError:error];
             }else{
                 if([message isSentCompletely]){
+                    [self.writeBandwidthMesurements recordMEssageUsageWithMessageCount:1];
                     if(message.completionBlock){
                         message.completionBlock(self,message.data, message.userData);
                     }
@@ -1083,6 +1108,9 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
         if (!_failed) {
 
         dispatch_async(_callbackQueue, ^{
+            if(self.closedBlock){
+                self.closedBlock(self,_closeCode,_closeReason,YES);
+            }
                 if ([self.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
                     [self.delegate webSocket:self didCloseWithCode:_closeCode reason:_closeReason wasClean:YES];
                 }
@@ -1429,6 +1457,9 @@ static const size_t SRFrameHeaderOverhead = 32;
                         bself->_sentClose = YES;
                         // If we get closed in this state it's probably not clean because we should be sending this when we send messages
                         dispatch_async(bself->_callbackQueue, ^{
+                            if(self.closedBlock){
+                                self.closedBlock(self,0,@"Stream end encountered",NO);
+                            }
                             if ([bself.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
                                 [bself.delegate webSocket:bself didCloseWithCode:0 reason:@"Stream end encountered" wasClean:NO];
                             }
@@ -1446,6 +1477,7 @@ static const size_t SRFrameHeaderOverhead = 32;
                 
                 while (bself->_inputStream.hasBytesAvailable) {
                     int bytes_read = [bself->_inputStream read:buffer maxLength:bufferSize];
+                    [self.readBandwidthMesurements recordBandwidthUsageWithLength:bytes_read];
                     
                     if (bytes_read > 0) {
                         [bself->_readBuffer appendBytes:buffer length:bytes_read];
@@ -1559,7 +1591,7 @@ static inline dispatch_queue_t log_queue() {
 }
 
 #if DEBUG
-#define SR_ENABLE_LOG
+//#define SR_ENABLE_LOG
 #endif
 
 static inline void SRFastLog(NSString *format, ...)  {
@@ -1641,4 +1673,98 @@ static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
 
 #endif
 
+
+@interface SRBandwidthMesurements()
+@property(nonatomic,assign) NSInteger lastMesureTimeInterval;
+@property(nonatomic,assign) NSUInteger consumedInThisSecond;
+@property(nonatomic,assign) NSUInteger totalSent;
+@property(nonatomic,assign) NSUInteger maxbandwidth;
+@property(nonatomic,assign,readwrite) NSUInteger bandwidth;
+
+@property(nonatomic,assign) NSInteger lastMessageMesureTimeInterval;
+@property(nonatomic,assign) NSUInteger messagesInThisSecond;
+@property(nonatomic,assign) NSUInteger totalMessages;
+@property(nonatomic,assign) NSUInteger maxMessages;
+@property(nonatomic,assign) NSUInteger messagesBandwidth;
+@end
+
+@implementation SRBandwidthMesurements
+@synthesize bandwidth,lastMesureTimeInterval,consumedInThisSecond,totalSent,maxbandwidth,name,messagesInThisSecond,totalMessages,lastMessageMesureTimeInterval,maxMessages,messagesBandwidth;
+
+- (id)initWithName:(NSString*)thename{
+    self = [super init];
+    self.lastMesureTimeInterval = 0;
+    self.consumedInThisSecond = 0;
+    self.totalSent = 0;
+    self.maxbandwidth = 0;
+    self.totalMessages = 0;
+    self.name = thename;
+    self.messagesInThisSecond = 0;
+    self.lastMessageMesureTimeInterval = 0;
+    self.maxMessages = 0;
+    self.messagesBandwidth = 0;
+    return self;
+}
+
+- (void)recordMEssageUsageWithMessageCount:(NSUInteger)count{
+    NSTimeInterval interval = [NSDate timeIntervalSinceReferenceDate];
+    if(interval - self.lastMessageMesureTimeInterval > 1){
+        self.messagesBandwidth = self.messagesInThisSecond;
+        if(self.messagesBandwidth > self.maxMessages){
+            self.maxMessages = self.messagesBandwidth;
+        }
+        
+        NSLog(@"Messages per sec (%@) : %d MaxMessages per sec : %d total : %d",self.name,self.messagesBandwidth,self.maxMessages,self.totalMessages);
+        
+        self.messagesInThisSecond = 0;
+        self.lastMessageMesureTimeInterval = (NSInteger)interval;
+    }
+    
+    self.messagesInThisSecond += count;
+    self.totalMessages += count;
+}
+
+- (void)recordBandwidthUsageWithLength:(NSUInteger)length{
+    NSTimeInterval interval = [NSDate timeIntervalSinceReferenceDate];
+    if(interval - self.lastMesureTimeInterval > 1){
+        self.bandwidth = self.consumedInThisSecond;
+        if(self.bandwidth > self.maxbandwidth){
+            self.maxbandwidth = self.bandwidth;
+        }
+        
+        NSLog(@"Bandwith (%@) : %d MaxBandwith : %d total : %d",self.name,self.bandwidth,self.maxbandwidth,self.totalSent);
+        
+        self.consumedInThisSecond = 0;
+        self.lastMesureTimeInterval = (NSInteger)interval;
+    }
+    
+    self.consumedInThisSecond += length;
+    self.totalSent += length;
+    
+/*if (bandwidthUsedInLastSecond == 0) {
+ [bandwidthUsageTracker removeAllObjects];
+ } else {
+ NSTimeInterval interval = [bandwidthMeasurementDate timeIntervalSinceNow];
+ while ((interval < 0 || [bandwidthUsageTracker count] > 5) && [bandwidthUsageTracker count] > 0) {
+ [bandwidthUsageTracker removeObjectAtIndex:0];
+ interval++;
+ }
+ }
+ #if DEBUG_THROTTLING
+ ASI_DEBUG_LOG(@"[THROTTLING] ===Used: %u bytes of bandwidth in last measurement period===",bandwidthUsedInLastSecond);
+ #endif
+ [bandwidthUsageTracker addObject:[NSNumber numberWithUnsignedLong:bandwidthUsedInLastSecond]];
+ [bandwidthMeasurementDate release];
+ bandwidthMeasurementDate = [[NSDate dateWithTimeIntervalSinceNow:1] retain];
+ bandwidthUsedInLastSecond = 0;
+ 
+ NSUInteger measurements = [bandwidthUsageTracker count];
+ unsigned long totalBytes = 0;
+ for (NSNumber *bytes in bandwidthUsageTracker) {
+ totalBytes += [bytes unsignedLongValue];
+ }
+ averageBandwidthUsedPerSecond = totalBytes/measurements;*/
+}
+
+@end
 

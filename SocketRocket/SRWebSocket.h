@@ -17,8 +17,21 @@
 #import <Foundation/Foundation.h>
 #import <Security/SecCertificate.h>
 
+@interface SRBandwidthMesurements : NSObject
+@property(nonatomic,assign,readonly) NSUInteger bandwidth;
+@property(nonatomic,retain) NSString* name;
+- (id)initWithName:(NSString*)name;
+- (void)recordBandwidthUsageWithLength:(NSUInteger)length;
+- (void)recordMEssageUsageWithMessageCount:(NSUInteger)count;
+@end
+
 @class SRWebSocket;
 typedef void(^SRWebSocketCompletionBlock)(SRWebSocket* socket,id data, id userData);
+
+typedef void(^SRWebSocketOpenedBlock)(SRWebSocket* socket);
+typedef void(^SRWebSocketErrorBlock)(SRWebSocket* socket,NSError* error);
+typedef void(^SRWebSocketClosedBlock)(SRWebSocket* socket,NSInteger code,NSString * reason,BOOL wasClean);
+typedef void(^SRWebSocketMessageBlock)(SRWebSocket* socket, NSString* message);
 
 
 typedef enum {
@@ -38,9 +51,16 @@ extern NSString *const SRWebSocketErrorDomain;
 @interface SRWebSocket : NSObject <NSStreamDelegate>
 
 @property (nonatomic, assign) id <SRWebSocketDelegate> delegate;
+@property (nonatomic, copy) SRWebSocketOpenedBlock openBlock;
+@property (nonatomic, copy) SRWebSocketClosedBlock closedBlock;
+@property (nonatomic, copy) SRWebSocketErrorBlock errorBlock;
+@property (nonatomic, copy) SRWebSocketMessageBlock messageBlock;
 
 @property (nonatomic, readonly) SRReadyState readyState;
 @property (nonatomic, readonly, retain) NSURL *url;
+
+@property (nonatomic, retain,readonly) SRBandwidthMesurements* writeBandwidthMesurements;
+@property (nonatomic, retain,readonly) SRBandwidthMesurements* readBandwidthMesurements;
 
 // This returns the negotiated protocol.
 // It will be niluntil after the handshake completes.
