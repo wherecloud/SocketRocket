@@ -17,14 +17,6 @@
 #import <Foundation/Foundation.h>
 #import <Security/SecCertificate.h>
 
-@interface SRBandwidthMesurements : NSObject
-@property(nonatomic,assign,readonly) NSUInteger bandwidth;
-@property(nonatomic,retain) NSString* name;
-- (id)initWithName:(NSString*)name;
-- (void)recordBandwidthUsageWithLength:(NSUInteger)length;
-- (void)recordMEssageUsageWithMessageCount:(NSUInteger)count;
-@end
-
 @class SRWebSocket;
 typedef void(^SRWebSocketCompletionBlock)(SRWebSocket* socket,id data, id userData);
 
@@ -58,9 +50,6 @@ extern NSString *const SRWebSocketErrorDomain;
 
 @property (nonatomic, readonly) SRReadyState readyState;
 @property (nonatomic, readonly, retain) NSURL *url;
-
-@property (nonatomic, retain,readonly) SRBandwidthMesurements* writeBandwidthMesurements;
-@property (nonatomic, retain,readonly) SRBandwidthMesurements* readBandwidthMesurements;
 
 // This returns the negotiated protocol.
 // It will be niluntil after the handshake completes.

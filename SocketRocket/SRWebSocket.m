@@ -16,6 +16,7 @@
 
 
 #import "SRWebSocket.h"
+#import "AMStatistics.h"
 
 #if TARGET_OS_IPHONE
 #define HAS_ICU
@@ -240,8 +241,6 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 - (void)_connectToHost:(NSString *)host port:(NSInteger)port;
 
 @property (nonatomic) SRReadyState readyState;
-@property (nonatomic, retain,readwrite) SRBandwidthMesurements* writeBandwidthMesurements;
-@property (nonatomic, retain,readwrite) SRBandwidthMesurements* readBandwidthMesurements;
 
 @end
 
@@ -303,8 +302,6 @@ typedef void (^data_callback)(SRWebSocket *webSocket,  NSData *data);
 @synthesize url = _url;
 @synthesize readyState = _readyState;
 @synthesize protocol = _protocol;
-@synthesize writeBandwidthMesurements = _writeBandwidthMesurements;
-@synthesize readBandwidthMesurements = _readBandwidthMesurements;
 
 @synthesize openBlock;
 @synthesize closedBlock;
@@ -324,8 +321,6 @@ static __strong NSData *CRLFCRLF;
     if (self) {
         assert(request.URL);
         _url = request.URL;
-        self.writeBandwidthMesurements = [[SRBandwidthMesurements alloc]initWithName:@"WRITE"];
-        self.readBandwidthMesurements = [[SRBandwidthMesurements alloc]initWithName:@"READ"];
         NSString *scheme = [_url scheme];
         
         _requestedProtocols = [protocols copy];
@@ -735,7 +730,7 @@ static __strong NSData *CRLFCRLF;
 - (void)_handleMessage:(id)message
 {
     __block SRWebSocket *bself = self;
-    [self.readBandwidthMesurements recordMEssageUsageWithMessageCount:1];
+    [[[AMStatistics sharedInstance] readMessagesBandwidthMesurements] record:1];
     dispatch_async(_callbackQueue, ^{
         if(bself.messageBlock){
             bself.messageBlock(bself,message);
@@ -1070,13 +1065,13 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
             SRMessage* message = [_outputMessageQueue objectAtIndex:0];
             
             NSUInteger written = [message sendInStream:_outputStream error:&error];
-            [self.writeBandwidthMesurements recordBandwidthUsageWithLength:written];
+            [[[AMStatistics sharedInstance] writeBytesBandwidthMesurements] record:written];
             
             if(error){
                 [self _failWithError:error];
             }else{
                 if([message isSentCompletely]){
-                    [self.writeBandwidthMesurements recordMEssageUsageWithMessageCount:1];
+                    [[[AMStatistics sharedInstance] writeMessagesBandwidthMesurements] record:1];
                     if(message.completionBlock){
                         message.completionBlock(self,message.data, message.userData);
                     }
@@ -1477,7 +1472,7 @@ static const size_t SRFrameHeaderOverhead = 32;
                 
                 while (bself->_inputStream.hasBytesAvailable) {
                     int bytes_read = [bself->_inputStream read:buffer maxLength:bufferSize];
-                    [self.readBandwidthMesurements recordBandwidthUsageWithLength:bytes_read];
+                    [[[AMStatistics sharedInstance] readBytesBandwidthMesurements] record:bytes_read];
                     
                     if (bytes_read > 0) {
                         [bself->_readBuffer appendBytes:buffer length:bytes_read];
@@ -1672,99 +1667,3 @@ static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
 }
 
 #endif
-
-
-@interface SRBandwidthMesurements()
-@property(nonatomic,assign) NSInteger lastMesureTimeInterval;
-@property(nonatomic,assign) NSUInteger consumedInThisSecond;
-@property(nonatomic,assign) NSUInteger totalSent;
-@property(nonatomic,assign) NSUInteger maxbandwidth;
-@property(nonatomic,assign,readwrite) NSUInteger bandwidth;
-
-@property(nonatomic,assign) NSInteger lastMessageMesureTimeInterval;
-@property(nonatomic,assign) NSUInteger messagesInThisSecond;
-@property(nonatomic,assign) NSUInteger totalMessages;
-@property(nonatomic,assign) NSUInteger maxMessages;
-@property(nonatomic,assign) NSUInteger messagesBandwidth;
-@end
-
-@implementation SRBandwidthMesurements
-@synthesize bandwidth,lastMesureTimeInterval,consumedInThisSecond,totalSent,maxbandwidth,name,messagesInThisSecond,totalMessages,lastMessageMesureTimeInterval,maxMessages,messagesBandwidth;
-
-- (id)initWithName:(NSString*)thename{
-    self = [super init];
-    self.lastMesureTimeInterval = 0;
-    self.consumedInThisSecond = 0;
-    self.totalSent = 0;
-    self.maxbandwidth = 0;
-    self.totalMessages = 0;
-    self.name = thename;
-    self.messagesInThisSecond = 0;
-    self.lastMessageMesureTimeInterval = 0;
-    self.maxMessages = 0;
-    self.messagesBandwidth = 0;
-    return self;
-}
-
-- (void)recordMEssageUsageWithMessageCount:(NSUInteger)count{
-    NSTimeInterval interval = [NSDate timeIntervalSinceReferenceDate];
-    if(interval - self.lastMessageMesureTimeInterval > 1){
-        self.messagesBandwidth = self.messagesInThisSecond;
-        if(self.messagesBandwidth > self.maxMessages){
-            self.maxMessages = self.messagesBandwidth;
-        }
-        
-        SRFastLog(@"Messages per sec (%@) : %d MaxMessages per sec : %d total : %d",self.name,self.messagesBandwidth,self.maxMessages,self.totalMessages);
-        
-        self.messagesInThisSecond = 0;
-        self.lastMessageMesureTimeInterval = (NSInteger)interval;
-    }
-    
-    self.messagesInThisSecond += count;
-    self.totalMessages += count;
-}
-
-- (void)recordBandwidthUsageWithLength:(NSUInteger)length{
-    NSTimeInterval interval = [NSDate timeIntervalSinceReferenceDate];
-    if(interval - self.lastMesureTimeInterval > 1){
-        self.bandwidth = self.consumedInThisSecond;
-        if(self.bandwidth > self.maxbandwidth){
-            self.maxbandwidth = self.bandwidth;
-        }
-        
-        SRFastLog(@"Bandwith (%@) : %d MaxBandwith : %d total : %d",self.name,self.bandwidth,self.maxbandwidth,self.totalSent);
-        
-        self.consumedInThisSecond = 0;
-        self.lastMesureTimeInterval = (NSInteger)interval;
-    }
-    
-    self.consumedInThisSecond += length;
-    self.totalSent += length;
-    
-/*if (bandwidthUsedInLastSecond == 0) {
- [bandwidthUsageTracker removeAllObjects];
- } else {
- NSTimeInterval interval = [bandwidthMeasurementDate timeIntervalSinceNow];
- while ((interval < 0 || [bandwidthUsageTracker count] > 5) && [bandwidthUsageTracker count] > 0) {
- [bandwidthUsageTracker removeObjectAtIndex:0];
- interval++;
- }
- }
- #if DEBUG_THROTTLING
- ASI_DEBUG_LOG(@"[THROTTLING] ===Used: %u bytes of bandwidth in last measurement period===",bandwidthUsedInLastSecond);
- #endif
- [bandwidthUsageTracker addObject:[NSNumber numberWithUnsignedLong:bandwidthUsedInLastSecond]];
- [bandwidthMeasurementDate release];
- bandwidthMeasurementDate = [[NSDate dateWithTimeIntervalSinceNow:1] retain];
- bandwidthUsedInLastSecond = 0;
- 
- NSUInteger measurements = [bandwidthUsageTracker count];
- unsigned long totalBytes = 0;
- for (NSNumber *bytes in bandwidthUsageTracker) {
- totalBytes += [bytes unsignedLongValue];
- }
- averageBandwidthUsedPerSecond = totalBytes/measurements;*/
-}
-
-@end
-
