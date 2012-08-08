@@ -730,7 +730,7 @@ static __strong NSData *CRLFCRLF;
 - (void)_handleMessage:(id)message
 {
     __block SRWebSocket *bself = self;
-    [[[AMStatistics sharedInstance] readMessagesBandwidthMesurements] record:1];
+    [[[AMStatistics sharedInstance] readMessagesBandwidth] record:1];
     dispatch_async(_callbackQueue, ^{
         if(bself.messageBlock){
             bself.messageBlock(bself,message);
@@ -1065,13 +1065,13 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
             SRMessage* message = [_outputMessageQueue objectAtIndex:0];
             
             NSUInteger written = [message sendInStream:_outputStream error:&error];
-            [[[AMStatistics sharedInstance] writeBytesBandwidthMesurements] record:written];
+            [[[AMStatistics sharedInstance] writeBytesBandwidth] record:written];
             
             if(error){
                 [self _failWithError:error];
             }else{
                 if([message isSentCompletely]){
-                    [[[AMStatistics sharedInstance] writeMessagesBandwidthMesurements] record:1];
+                    [[[AMStatistics sharedInstance] writeMessagesBandwidth] record:1];
                     if(message.completionBlock){
                         message.completionBlock(self,message.data, message.userData);
                     }
@@ -1472,7 +1472,7 @@ static const size_t SRFrameHeaderOverhead = 32;
                 
                 while (bself->_inputStream.hasBytesAvailable) {
                     int bytes_read = [bself->_inputStream read:buffer maxLength:bufferSize];
-                    [[[AMStatistics sharedInstance] readBytesBandwidthMesurements] record:bytes_read];
+                    [[[AMStatistics sharedInstance] readBytesBandwidth] record:bytes_read];
                     
                     if (bytes_read > 0) {
                         [bself->_readBuffer appendBytes:buffer length:bytes_read];
