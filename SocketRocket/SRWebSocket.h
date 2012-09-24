@@ -17,14 +17,21 @@
 #import <Foundation/Foundation.h>
 #import <Security/SecCertificate.h>
 
+extern NSString *const SRWebSocketHTTPErrorDomain;
+extern NSString *const SRWebSocketErrorDomain;
+extern NSString *const SRWebSocketHTTPStatusCodeKey;
+extern NSString *const SRWebSocketHTTPStatusLineKey;
+
+//
+
 @class SRWebSocket;
+
 typedef void(^SRWebSocketCompletionBlock)(SRWebSocket* socket,id data, id userData);
 
 typedef void(^SRWebSocketOpenedBlock)(SRWebSocket* socket);
 typedef void(^SRWebSocketErrorBlock)(SRWebSocket* socket,NSError* error);
 typedef void(^SRWebSocketClosedBlock)(SRWebSocket* socket,NSInteger code,NSString * reason,BOOL wasClean);
 typedef void(^SRWebSocketMessageBlock)(SRWebSocket* socket, NSString* message);
-
 
 typedef enum {
     SR_CONNECTING   = 0,
