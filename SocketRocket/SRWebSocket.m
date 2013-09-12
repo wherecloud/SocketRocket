@@ -102,13 +102,13 @@ static inline void SRFastLog(NSString *format, ...);
 static NSString *newSHA1String(const char *bytes, size_t length) {
     uint8_t md[CC_SHA1_DIGEST_LENGTH];
     
-    CC_SHA1(bytes, length, md);
+    CC_SHA1(bytes, (CC_LONG)length, md);
     
     size_t buffer_size = ((sizeof(md) * 3 + 2) / 2);
     
     char *buffer =  (char *)malloc(buffer_size);
     
-    int len = b64_ntop(md, CC_SHA1_DIGEST_LENGTH, buffer, buffer_size);
+    size_t len = b64_ntop(md, CC_SHA1_DIGEST_LENGTH, buffer, buffer_size);
     if (len == -1) {
         free(buffer);
         return nil;
@@ -391,7 +391,7 @@ static __strong NSData *CRLFCRLF;
     [_inputStream close];
     [_outputStream close];
     
-    dispatch_release(_workQueue);
+ //   dispatch_release(_workQueue);
     //dispatch_release(_callbackQueue);
     
     if (_receivedHTTPHeaders) {
@@ -458,7 +458,7 @@ static __strong NSData *CRLFCRLF;
         NSString *httpStatusLine = CFBridgingRelease(httpStatusLineRef);
         
         NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
-        [userInfo setObject:[NSString stringWithFormat:@"received bad response code from server %d", responseCode] forKey:NSLocalizedDescriptionKey];
+        [userInfo setObject:[NSString stringWithFormat:@"received bad response code from server %ld", (long)responseCode] forKey:NSLocalizedDescriptionKey];
         [userInfo setObject:[NSNumber numberWithInteger:responseCode] forKey:SRWebSocketHTTPStatusCodeKey];
         [userInfo setObject:httpStatusLine forKey:SRWebSocketHTTPStatusLineKey];
         
@@ -536,7 +536,7 @@ static __strong NSData *CRLFCRLF;
     CFHTTPMessageSetHeaderFieldValue(request, CFSTR("Upgrade"), CFSTR("websocket"));
     CFHTTPMessageSetHeaderFieldValue(request, CFSTR("Connection"), CFSTR("Upgrade"));
     CFHTTPMessageSetHeaderFieldValue(request, CFSTR("Sec-WebSocket-Key"), (__bridge CFStringRef)_secKey);
-    CFHTTPMessageSetHeaderFieldValue(request, CFSTR("Sec-WebSocket-Version"), (__bridge CFStringRef)[NSString stringWithFormat:@"%d", _webSocketVersion]);
+    CFHTTPMessageSetHeaderFieldValue(request, CFSTR("Sec-WebSocket-Version"), (__bridge CFStringRef)[NSString stringWithFormat:@"%ld", (long)_webSocketVersion]);
     
     CFHTTPMessageSetHeaderFieldValue(request, CFSTR("Origin"), (__bridge CFStringRef)_url.SR_origin);
     
@@ -566,7 +566,7 @@ static __strong NSData *CRLFCRLF;
     CFReadStreamRef readStream = NULL;
     CFWriteStreamRef writeStream = NULL;
     
-    CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)host, port, &readStream, &writeStream);
+    CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)host, (UInt32)port, &readStream, &writeStream);
     
     _outputStream = CFBridgingRelease(writeStream);
     _inputStream = CFBridgingRelease(readStream);
@@ -691,7 +691,7 @@ static __strong NSData *CRLFCRLF;
 
 - (void)_writeMessage:(SRMessage*)message
 {    
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
 
     if (_closeWhenFinishedWriting) {
             return;
@@ -818,7 +818,7 @@ static inline BOOL closeCodeIsValid(int closeCode) {
         _closeCode = SRStatusNoStatusReceived;
     }
     
-    assert(dispatch_get_current_queue() == _workQueue);
+//    assert(dispatch_get_current_queue() == _workQueue);
     
     if (self.readyState == SR_OPEN) {
         [self closeWithCode:1000 reason:nil];
@@ -832,7 +832,7 @@ static inline BOOL closeCodeIsValid(int closeCode) {
 
 - (void)_disconnect;
 {
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
     SRFastLog(@"Trying to disconnect");
     _closeWhenFinishedWriting = YES;
     [self _pumpWriting];
@@ -880,7 +880,7 @@ static inline BOOL closeCodeIsValid(int closeCode) {
             [self handlePong];
             break;
         default:
-            [self _closeWithProtocolError:[NSString stringWithFormat:@"Unknown opcode %d", opcode]];
+            [self _closeWithProtocolError:[NSString stringWithFormat:@"Unknown opcode %ld", (long)opcode]];
             // TODO: Handle invalid opcode
             break;
     }
@@ -1070,7 +1070,7 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
 
 - (void)_pumpWriting;
 {
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
     
     @synchronized(_outputMessageQueue){
         NSError* error = nil;
@@ -1131,13 +1131,13 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
 
 - (void)_addConsumerWithScanner:(stream_scanner)consumer callback:(data_callback)callback;
 {
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
     [self _addConsumerWithScanner:consumer callback:callback dataLength:0];
 }
 
 - (void)_addConsumerWithDataLength:(size_t)dataLength callback:(data_callback)callback readToCurrentFrame:(BOOL)readToCurrentFrame unmaskBytes:(BOOL)unmaskBytes;
 {   
-    assert(dispatch_get_current_queue() == _workQueue);
+//    assert(dispatch_get_current_queue() == _workQueue);
     assert(dataLength);
     
     [_consumers addObject:[[SRIOConsumer alloc] initWithScanner:nil handler:callback bytesNeeded:dataLength readToCurrentFrame:readToCurrentFrame unmaskBytes:unmaskBytes]];
@@ -1146,7 +1146,7 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
 
 - (void)_addConsumerWithScanner:(stream_scanner)consumer callback:(data_callback)callback dataLength:(size_t)dataLength;
 {    
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
     [_consumers addObject:[[SRIOConsumer alloc] initWithScanner:consumer handler:callback bytesNeeded:dataLength readToCurrentFrame:NO unmaskBytes:NO]];
     [self _pumpScanner];
 }
@@ -1293,7 +1293,7 @@ static const char CRLFCRLFBytes[] = {'\r', '\n', '\r', '\n'};
 
 -(void)_pumpScanner;
 {
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
     
     while ([self _innerPumpScanner]) {
         
@@ -1306,7 +1306,7 @@ static const size_t SRFrameHeaderOverhead = 32;
 
 - (void)_sendFrameWithOpcode:(SROpCode)opcode data:(id)data userData:userData completionBlock:(void(^)(SRWebSocket* socket, id data, id usedData))completionBlock
 {
-    assert(dispatch_get_current_queue() == _workQueue);
+ //   assert(dispatch_get_current_queue() == _workQueue);
     
     NSAssert(data == nil || [data isKindOfClass:[NSData class]] || [data isKindOfClass:[NSString class]], @"Function expects nil, NSString or NSData");
     
@@ -1484,7 +1484,7 @@ static const size_t SRFrameHeaderOverhead = 32;
                 uint8_t buffer[bufferSize];
                 
                 while (bself->_inputStream.hasBytesAvailable) {
-                    int bytes_read = [bself->_inputStream read:buffer maxLength:bufferSize];
+                    NSInteger bytes_read = [bself->_inputStream read:buffer maxLength:bufferSize];
                     [[[AMStatistics sharedInstance] readBytesBandwidth] record:bytes_read];
                     
                     if (bytes_read > 0) {
@@ -1621,7 +1621,7 @@ static inline void SRFastLog(NSString *format, ...)  {
 static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
     
     const void * contents = [data bytes];
-    long size = [data length];
+    int32_t size = (int32_t)[data length];
     
     const uint8_t *str = (const uint8_t *)contents;
     
